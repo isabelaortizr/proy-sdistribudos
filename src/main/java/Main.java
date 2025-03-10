@@ -1,5 +1,3 @@
-package org.example;
-
 import BD.Database;
 
 public class Main {
