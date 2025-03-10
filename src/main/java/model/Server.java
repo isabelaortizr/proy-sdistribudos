@@ -1,72 +1,80 @@
+package model;
+
+import planificador.PlanificadorEntrada;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Clase que actúa como servidor (nodo principal),
+ * recibiendo conexiones entrantes de otros nodos.
+ */
 public class Server {
-    private static final int PUERTO = 1825;
-    private static final List<String> listaNodos = new ArrayList<>();
-    private static final boolean isNodoPrincipal = true; // Flag que define que este es el nodo principal
+    private int port;
+    private PlanificadorEntrada planificadorEntrada;
+    private boolean running = true;
 
-    public static void main(String[] args) {
-        try (ServerSocket servidor = new ServerSocket(PUERTO)) {
-            System.out.println("✅ Nodo Principal activo en el puerto " + PUERTO);
+    // Conjunto para almacenar las IPs de los clientes conectados
+    private Set<String> connectedIPs = ConcurrentHashMap.newKeySet();
 
-            while (true) {
-                Socket cliente = servidor.accept();
-                String ipCliente = cliente.getInetAddress().getHostAddress();
+    public Server(int port, PlanificadorEntrada planificadorEntrada) {
+        this.port = port;
+        this.planificadorEntrada = planificadorEntrada;
+    }
 
-                System.out.println("🔗 Nuevo nodo conectado: " + ipCliente);
-                listaNodos.add(ipCliente); // Agregar la IP del nodo nuevo a la lista
+    public void start() {
+        new Thread(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(port)) {
+                System.out.println("Servidor escuchando en puerto " + port);
+                while (running) {
+                    Socket clientSocket = serverSocket.accept();
+                    // Se crea un hilo para manejar cada conexión entrante.
+                    new Thread(() -> handleClient(clientSocket)).start();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
 
-                new Thread(new ManejadorNodo(cliente, ipCliente)).start();
+    private void handleClient(Socket clientSocket) {
+        String clientIP = clientSocket.getInetAddress().getHostAddress();
+        // Agregar la IP del cliente a la lista de conectados
+        connectedIPs.add(clientIP);
+        System.out.println("Cliente conectado: " + clientIP);
+
+        try (BufferedReader in = new BufferedReader(
+                new InputStreamReader(clientSocket.getInputStream()));
+             PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true)) {
+
+            // Genera la lista real de IPs conectadas
+            String listaIPs = String.join(",", connectedIPs);
+            String comando = "0001|" + listaIPs;
+            out.println(comando);
+            System.out.println("Enviado comando 0001: " + comando);
+
+            // Se queda escuchando mensajes del cliente.
+            String line;
+            while ((line = in.readLine()) != null) {
+                System.out.println("Mensaje recibido del cliente " + clientIP + ": " + line);
+                planificadorEntrada.recibirComando(line);
             }
         } catch (IOException e) {
             e.printStackTrace();
+        } finally {
+            // Al finalizar la conexión, remueve la IP del cliente
+            connectedIPs.remove(clientIP);
+            System.out.println("Cliente desconectado: " + clientIP);
         }
     }
 
-    private static class ManejadorNodo implements Runnable {
-        private Socket cliente;
-        private String ipNodo;
-
-        public ManejadorNodo(Socket cliente, String ipNodo) {
-            this.cliente = cliente;
-            this.ipNodo = ipNodo;
-        }
-
-        @Override
-        public void run() {
-            try (BufferedReader entrada = new BufferedReader(new InputStreamReader(cliente.getInputStream()));
-                 PrintWriter salida = new PrintWriter(cliente.getOutputStream(), true)) {
-
-                String mensaje = entrada.readLine(); // Leer el comando enviado por el nodo nuevo
-                if (isNodoPrincipal && "0001".equals(mensaje)) { // Solo el Nodo Principal puede interpretar este comando
-                    String respuesta = generarCodigoConexion();
-                    System.out.println("📤 Enviando lista de nodos a " + ipNodo + ": " + respuesta);
-                    salida.println(respuesta);
-                } else {
-                    System.out.println("❌ Comando no válido de " + ipNodo);
-                    salida.println("ERROR: Comando no autorizado");
-                }
-
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                try {
-                    cliente.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        private String generarCodigoConexion() {
-            return "0001|" + String.join(";", listaNodos);
-        }
+    public void stopServer() {
+        running = false;
+        System.out.println("Servidor detenido.");
     }
 }
