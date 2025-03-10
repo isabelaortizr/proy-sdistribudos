@@ -1,27 +1,46 @@
 package model;
 
+import planificador.PlanificadorEntrada;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 
+/**
+ * Clase para enviar mensajes a otros nodos y conectarse al nodo principal.
+ */
 public class SocketClient {
-    private static final String IP_NODO_PRINCIPAL = "172.16.40.233"; // IP del Nodo Principal
-    private static final int PUERTO = 1825;
 
-    public static void main(String[] args) {
-        try (Socket socket = new Socket(IP_NODO_PRINCIPAL, PUERTO);
-             BufferedReader entrada = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-             PrintWriter salida = new PrintWriter(socket.getOutputStream(), true)) {
-
-            salida.println("0001"); // Enviar el comando para obtener la lista de nodos
-
-            String respuesta = entrada.readLine(); // Recibir la respuesta
-            System.out.println("📥 Lista de Nodos Recibida: " + respuesta);
-
+    /**
+     * Envía un mensaje (comando) a la IP y puerto especificados.
+     */
+    public void sendMessage(String host, int port, String message) {
+        try (Socket socket = new Socket(host, port);
+             PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
+            out.println(message);
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Conecta al nodo principal y escucha sus mensajes.
+     * Los mensajes recibidos se encolan en el planificador de entrada.
+     */
+    public void connectToPrincipal(String host, int port, PlanificadorEntrada planificadorEntrada) {
+        new Thread(() -> {
+            try (Socket socket = new Socket(host, port);
+                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+
+                String mensaje;
+                while ((mensaje = in.readLine()) != null) {
+                    System.out.println("Mensaje recibido del principal: " + mensaje);
+                    planificadorEntrada.recibirComando(mensaje);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 }

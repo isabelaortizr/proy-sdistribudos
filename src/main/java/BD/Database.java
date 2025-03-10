@@ -3,52 +3,52 @@ package BD;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.sql.Statement;
 
+/**
+ * Maneja la conexión a la base de datos SQLite.
+ */
 public class Database {
+    private static Connection connection;
 
-    private static final String DATABASE_URL = "jdbc:mysql://localhost:3306/sistema_votos?useSSL=false&serverTimezone=UTC";
-    private static final String USERNAME = "user";
-    private static final String PASSWORD = "password";
-
-    private static Database instance;
-    private Connection connection;
-
-    private Database() {
+    static {
         try {
-            connection = DriverManager.getConnection(DATABASE_URL, USERNAME, PASSWORD);
-            System.out.println("Database connection established.");
-        } catch (SQLException e) {
-            System.err.println("Error connecting to the database: " + e.getMessage());
+            // Carga el driver de SQLite
+            Class.forName("org.sqlite.JDBC");
+            // Crea o abre la base de datos (archivo "mydb.db")
+            connection = DriverManager.getConnection("jdbc:sqlite:mydb.db");
+            // Crea las tablas si no existen
+            crearTablas();
+        } catch (ClassNotFoundException | SQLException e) {
+            e.printStackTrace();
         }
     }
 
-    public static synchronized Database getInstance() {
-        if (instance == null) {
-            instance = new Database();
+    private static void crearTablas() {
+        try (Statement stmt = connection.createStatement()) {
+            // Tabla de candidatos
+            String sqlCandidato = "CREATE TABLE IF NOT EXISTS candidato ("
+                    + "codigo TEXT PRIMARY KEY, "
+                    + "nombre TEXT"
+                    + ");";
+            stmt.execute(sqlCandidato);
+
+            // Tabla de votantes
+            String sqlVotante = "CREATE TABLE IF NOT EXISTS votante ("
+                    + "codigo TEXT PRIMARY KEY, "
+                    + "llave_privada TEXT"
+                    + ");";
+            stmt.execute(sqlVotante);
+
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
-        return instance;
     }
 
-    public Connection getConnection() {
-        try {
-            if (connection == null || connection.isClosed()) {
-                connection = DriverManager.getConnection(DATABASE_URL, USERNAME, PASSWORD);
-                System.out.println("Reopened database connection.");
-            }
-        } catch (SQLException e) {
-            System.err.println("Error getting database connection: " + e.getMessage());
-        }
+    /**
+     * Devuelve la conexión única a la base de datos.
+     */
+    public static Connection getConnection() {
         return connection;
-    }
-
-    public void closeConnection() {
-        try {
-            if (connection != null && !connection.isClosed()) {
-                connection.close();
-                System.out.println("Database connection closed.");
-            }
-        } catch (SQLException e) {
-            System.err.println("Error closing the database connection: " + e.getMessage());
-        }
     }
 }
