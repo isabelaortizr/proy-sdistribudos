@@ -1,4 +1,3 @@
-package org.example;
 
 import model.Server;
 import model.SocketClient;
@@ -16,7 +15,6 @@ public class Main {
             esPrincipal = true;
         }
 
-
         PlanificadorEntrada planificadorEntrada = new PlanificadorEntrada();
 
         if (esPrincipal) {
@@ -29,11 +27,11 @@ public class Main {
 
             SocketClient socketClient = new SocketClient();
 
-            socketClient.connectToPrincipal("172.16.61.14", 1825, planificadorEntrada);
+            // mi ip 172.16.72.63
+            socketClient.connectToPrincipal("172.16.72.63", 1825, planificadorEntrada);
         }
 
-
-        String[] nodos = {"172.16.61.14"};
+        String[] nodos = {"172.16.72.63"};
         PlanificadorSalida planificadorSalida = new PlanificadorSalida(nodos);
 
 

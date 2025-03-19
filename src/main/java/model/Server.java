@@ -19,6 +19,10 @@ public class Server {
     private PlanificadorEntrada planificadorEntrada;
     private boolean running = true;
 
+    public static final int MAX_CONNECTIONS = 5;
+    private int currentConnections = 0; // Contador de conexiones actuales
+
+
     // Conjunto para almacenar las IPs de los clientes conectados
     private Set<String> connectedIPs = ConcurrentHashMap.newKeySet();
 
@@ -32,15 +36,37 @@ public class Server {
             try (ServerSocket serverSocket = new ServerSocket(port)) {
                 System.out.println("Servidor escuchando en puerto " + port);
                 while (running) {
+                    System.out.println("Entra al bloque");
                     Socket clientSocket = serverSocket.accept();
+
+                    if (currentConnections >= MAX_CONNECTIONS) {
+                        System.out.println("entra al if");
+                        System.out.println("Máximo de conexiones alcanzado. Rechazando nueva conexión.");
+                        clientSocket.close();
+                        continue;
+                    }
+
+                    // Incrementa el contador de conexiones
+                    currentConnections++;
+
+                    // Muestra el número de conexiones tras la actualización
+                    System.out.println("Conexiones activas después de la aceptación: " + currentConnections);
+
                     // Se crea un hilo para manejar cada conexión entrante.
                     new Thread(() -> handleClient(clientSocket)).start();
+
+                    if (currentConnections >= MAX_CONNECTIONS) {
+                        System.out.println("Se alcanzó el máximo de " + MAX_CONNECTIONS + " conexiones.");
+                        stopServer();
+                    }
+
                 }
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }).start();
     }
+
 
     private void handleClient(Socket clientSocket) {
         String clientIP = clientSocket.getInetAddress().getHostAddress();

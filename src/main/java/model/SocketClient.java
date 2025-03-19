@@ -43,4 +43,17 @@ public class SocketClient {
             }
         }).start();
     }
+
+
+
+    public static void main(String[] args) {
+        for (int i = 0; i < 6; i++) {
+            try {
+                new Socket("172.16.41.130", 1825);
+                System.out.println("Conectado al servidor: " + i);
+            } catch (IOException e) {
+                System.err.println("Error al conectar: " + e.getMessage());
+            }
+        }
+    }
 }

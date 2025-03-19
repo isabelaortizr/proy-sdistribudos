@@ -1,5 +1,7 @@
 package BD;
 
+import lombok.Getter;
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -10,20 +12,20 @@ import java.sql.Statement;
  */
 public class Database {
     private static Connection connection;
+    @Getter
+    private static Database instance = new Database();
+    private static final String DATABASE_URL = "jdbc:sqlite:testing.db";
 
-    static {
+    private Database() {
         try {
-            // Carga el driver de SQLite
             Class.forName("org.sqlite.JDBC");
-            // Crea o abre la base de datos (archivo "mydb.db")
-            connection = DriverManager.getConnection("jdbc:sqlite:mydb.db");
-            // Crea las tablas si no existen
-            crearTablas();
+            connection = DriverManager.getConnection(DATABASE_URL);
+            connection.setAutoCommit(true);
+            System.out.println("Connection to SQLite established.");
         } catch (ClassNotFoundException | SQLException e) {
-            e.printStackTrace();
+            System.err.println("Error connecting to the database: " + e.getMessage());
         }
     }
-
     private static void crearTablas() {
         try (Statement stmt = connection.createStatement()) {
             // Tabla de candidatos
@@ -48,7 +50,8 @@ public class Database {
     /**
      * Devuelve la conexión única a la base de datos.
      */
-    public static Connection getConnection() {
-        return connection;
+    public Connection getConnection() throws SQLException {
+        return DriverManager.getConnection(DATABASE_URL);
     }
+
 }
