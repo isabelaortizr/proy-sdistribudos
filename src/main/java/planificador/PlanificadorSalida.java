@@ -1,61 +1,106 @@
 package planificador;
 
+import java.util.concurrent.*;
+import java.util.*;
 import model.SocketClient;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import comandos.Comando;
 
-/**
- * Planificador de Mensajes de Salida.
- * Cuando se necesita difundir un comando a otros nodos, se usa este planificador.
- */
-public class PlanificadorSalida {
-    private BlockingQueue<String> colaMensajes;
-    private boolean running = true;
-    private SocketClient socketClient;
-    private String[] nodos; // Lista de IPs a las que enviar
-    private int port = 1825; // Puerto al que enviar por defecto
+public class PlanificadorSalida extends Thread {
+    private final BlockingQueue<Comando> colaMensajes;
+    private final Set<SocketClient> clientes;
+    private volatile boolean running;
 
-    public PlanificadorSalida(String[] nodos) {
-        this.nodos = nodos;
+    public PlanificadorSalida(String[] nodosDestino) {
         this.colaMensajes = new LinkedBlockingQueue<>();
-        this.socketClient = new SocketClient();
-        iniciarProcesamiento();
+        this.clientes = Collections.synchronizedSet(new HashSet<>());
+        this.running = true;
+        
+        // Conectar con los nodos iniciales
+        for (String nodo : nodosDestino) {
+            agregarNodo(nodo);
+        }
     }
 
-    /**
-     * Encola un comando para su envío.
-     */
-    public void enviarComando(String comando) {
+    @Override
+    public void run() {
+        while (running) {
+            try {
+                Comando comando = colaMensajes.poll(100, TimeUnit.MILLISECONDS);
+                if (comando != null) {
+                    distribuirMensaje(comando);
+                }
+            } catch (InterruptedException e) {
+                if (running) {
+                    System.err.println("Error en PlanificadorSalida: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    public void addMessage(Comando comando) {
         try {
             colaMensajes.put(comando);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Error agregando mensaje a la cola", e);
         }
     }
 
-    /**
-     * Inicia el hilo que toma comandos de la cola y los envía a todos los nodos.
-     */
-    private void iniciarProcesamiento() {
-        new Thread(() -> {
-            while (running) {
+    private void distribuirMensaje(Comando comando) {
+        String mensaje = comando.getComando();
+        synchronized (clientes) {
+            Iterator<SocketClient> iterator = clientes.iterator();
+            while (iterator.hasNext()) {
+                SocketClient cliente = iterator.next();
                 try {
-                    String comando = colaMensajes.take();
-                    difundirComando(comando);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    cliente.send(mensaje);
+                } catch (Exception e) {
+                    System.err.println("Error enviando mensaje a " + cliente.getRemoteAddress() + ": " + e.getMessage());
+                    iterator.remove();
+                    cliente.close();
                 }
             }
-        }).start();
+        }
     }
 
-    /**
-     * Envía el comando a todos los nodos configurados.
-     */
-    private void difundirComando(String comando) {
-        for (String nodo : nodos) {
-            System.out.println("Enviando comando a " + nodo + ":" + port + " => " + comando);
-            socketClient.sendMessage(nodo, port, comando);
+    public void agregarNodo(String ip) {
+        try {
+            SocketClient cliente = new SocketClient();
+            cliente.connectToPrincipal(ip, 1825, null);
+            clientes.add(cliente);
+            System.out.println("Nodo agregado: " + ip);
+        } catch (Exception e) {
+            System.err.println("Error conectando con nodo " + ip + ": " + e.getMessage());
         }
+    }
+
+    public void eliminarNodo(String ip) {
+        synchronized (clientes) {
+            Iterator<SocketClient> iterator = clientes.iterator();
+            while (iterator.hasNext()) {
+                SocketClient cliente = iterator.next();
+                if (cliente.getRemoteAddress().equals(ip)) {
+                    iterator.remove();
+                    cliente.close();
+                    System.out.println("Nodo eliminado: " + ip);
+                    break;
+                }
+            }
+        }
+    }
+
+    public int getCantidadNodos() {
+        return clientes.size();
+    }
+
+    public void detener() {
+        running = false;
+        synchronized (clientes) {
+            for (SocketClient cliente : clientes) {
+                cliente.close();
+            }
+            clientes.clear();
+        }
+        interrupt();
     }
 }

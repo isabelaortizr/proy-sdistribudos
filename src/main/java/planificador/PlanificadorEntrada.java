@@ -1,102 +1,187 @@
 package planificador;
 
-import comandos.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
+import java.net.Socket;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
+
+import model.SocketClient;
+import comandos.*;
 
 /**
  * Planificador de Mensajes de Entrada.
  * Recibe los comandos que llegan por socket y los procesa en un hilo.
  */
-public class PlanificadorEntrada {
-    private BlockingQueue<String> colaMensajes;
-    private boolean running = true;
+public class PlanificadorEntrada extends Thread {
+    private static final Logger log = Logger.getLogger(PlanificadorEntrada.class.getName());
+    private final BlockingQueue<String> colaComandos;
+    private final PlanificadorPresidenteMesa planificador;
+    private volatile boolean running;
 
-    public PlanificadorEntrada() {
-        this.colaMensajes = new LinkedBlockingQueue<>();
-        iniciarProcesamiento();
+    public PlanificadorEntrada(PlanificadorPresidenteMesa planificador) {
+        this.colaComandos = new LinkedBlockingQueue<>();
+        this.planificador = planificador;
+        this.running = true;
+    }
+
+    @Override
+    public void run() {
+        log.info("PlanificadorEntrada iniciado");
+        while (running) {
+            try {
+                String comando = colaComandos.poll(100, TimeUnit.MILLISECONDS);
+                if (comando != null) {
+                    procesarComando(comando);
+                }
+            } catch (InterruptedException e) {
+                if (running) {
+                    log.severe("Error en PlanificadorEntrada: " + e.getMessage());
+                }
+            }
+        }
+        log.info("PlanificadorEntrada detenido");
     }
 
     /**
      * Método para recibir un comando desde el socket y encolarlo.
      */
-    public void recibirComando(String comando) {
+    public void recibirComando(String mensaje) {
         try {
-            colaMensajes.put(comando);
+            colaComandos.put(mensaje);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.severe("Error encolando comando: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Procesa el comando identificando su tipo y ejecutando la acción correspondiente.
+     */
+    private void procesarComando(String mensaje) {
+        try {
+            log.info("Procesando comando: " + mensaje);
+            String[] partes = mensaje.split("\\|");
+            if (partes.length < 2) {
+                log.warning("Formato de comando inválido: " + mensaje);
+                return;
+            }
+
+            String tipoComando = partes[0];
+            switch (tipoComando) {
+                case "0001":
+                    procesarComandoListaNodos(partes[1]);
+                    break;
+                case "0009":
+                    procesarComandoVotacion(mensaje);
+                    break;
+                case "0010":
+                    procesarComandoConfirmacion(mensaje);
+                    break;
+                case "0011":
+                    procesarComandoSincronizacion(mensaje);
+                    break;
+                default:
+                    log.warning("Tipo de comando desconocido: " + tipoComando);
+            }
+        } catch (Exception e) {
+            log.severe("Error procesando comando: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    /**
-     * Inicia el hilo que va tomando comandos de la cola y los procesa.
-     */
-    private void iniciarProcesamiento() {
-        new Thread(() -> {
-            while (running) {
+    private void procesarComandoListaNodos(String listaIps) {
+        try {
+            log.info("Procesando lista de nodos: " + listaIps);
+            String[] ips = listaIps.split(";");
+            
+            for (String ip : ips) {
+                ip = ip.trim();
+                log.info("IP A CONECTAR: " + ip);
+                
+                if (ip.equals("127.0.0.1") || ip.equals("localhost") || isMyIP(ip)) {
+                    continue;
+                }
+
                 try {
-                    String comando = colaMensajes.take();
-                    procesarComando(comando);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    Socket socket = new Socket(ip, 1825);
+                    SocketClient client = new SocketClient(socket);
+                    client.startReading();
+                    planificador.getPlanificadorSalida().agregarNodo(ip);
+                    log.info("Conectado al nodo: " + ip);
+                } catch (Exception e) {
+                    log.warning("Error conectando a nodo " + ip + ": " + e.getMessage());
                 }
             }
-        }).start();
+        } catch (Exception e) {
+            log.severe("Error procesando lista de nodos: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
-    /**
-     * Procesa el comando identificando el código (0001..0007) y
-     * ejecuta la clase correspondiente.
-     */
-    private void procesarComando(String comando) {
-        // Ej: "0003|1234,Juan Perez"
-        String[] partes = comando.split("\\|", 2);
-        if (partes.length < 2) {
-            System.out.println("Comando inválido: " + comando);
-            return;
+    private void procesarComandoVotacion(String mensaje) {
+        try {
+            Comando09 comando = Comando09.parsear(mensaje);
+            if (comando != null) {
+                PlanificadorPresidenteMesa.addVoto(new VotacionComando(comando.getVoto(), comando.getFirma()));
+                log.info("Voto procesado: " + comando.getVoto().getId());
+            }
+        } catch (Exception e) {
+            log.severe("Error procesando comando de votación: " + e.getMessage());
         }
+    }
 
-        String codigo = partes[0];
-        String datos = partes[1];
-
-        switch (codigo) {
-            case "0001":
-                // Lista de nodos
-                new ListaNodosComando(datos).ejecutar();
-                break;
-            case "0002":
-                // Sincronizar candidatos
-                new SyncCandidatosComando(datos).ejecutar();
-                break;
-            case "0003":
-                // Alta candidato
-                String[] partsC = datos.split(",", 2);
-                if (partsC.length == 2) {
-                    new AltaCandidatoComando(partsC[0], partsC[1]).ejecutar();
-                }
-                break;
-            case "0004":
-                // Eliminar candidato
-                new EliminarCandidatoComando(datos).ejecutar();
-                break;
-            case "0005":
-                // Sincronizar votantes
-                new SyncVotantesComando(datos).ejecutar();
-                break;
-            case "0006":
-                // Alta votante
-                String[] partsV = datos.split(",", 2);
-                if (partsV.length == 2) {
-                    new AltaVotanteComando(partsV[0], partsV[1]).ejecutar();
-                }
-                break;
-            case "0007":
-                // Eliminar votante
-                new EliminarVotanteComando(datos).ejecutar();
-                break;
-            default:
-                System.out.println("Código de comando desconocido: " + codigo);
-                break;
+    private void procesarComandoConfirmacion(String mensaje) {
+        try {
+            Comando10 comando = Comando10.parsear(mensaje);
+            if (comando != null) {
+                PlanificadorPresidenteMesa.confirmarVoto(
+                    new ConfirmacionVotoComando(comando.getIdVoto(), comando.isConfirmado(), comando.getIpOrigen())
+                );
+                log.info("Confirmación procesada para voto: " + comando.getIdVoto());
+            }
+        } catch (Exception e) {
+            log.severe("Error procesando comando de confirmación: " + e.getMessage());
         }
+    }
+
+    private void procesarComandoSincronizacion(String mensaje) {
+        try {
+            Comando11 comando = Comando11.parsear(mensaje);
+            if (comando != null) {
+                planificador.getPlanificadorSalida().addMessage(comando);
+                log.info("Sincronización procesada para bloque: " + comando.getIdBloque());
+            }
+        } catch (Exception e) {
+            log.severe("Error procesando comando de sincronización: " + e.getMessage());
+        }
+    }
+
+    private boolean isMyIP(String ip) {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+                if (iface.isLoopback() || !iface.isUp()) continue;
+
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (addr.getHostAddress().equals(ip)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.severe("Error verificando IP: " + e.getMessage());
+        }
+        return false;
+    }
+
+    public void detener() {
+        running = false;
     }
 }

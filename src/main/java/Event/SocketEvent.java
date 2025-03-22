@@ -1,17 +1,15 @@
 package Event;
 
+import model.SocketClient;
+import comandos.Comando;
+
 /**
- * Ejemplo de clase para modelar un evento de socket.
- * Puedes ampliarlo con más campos si lo requieres.
+ * Interfaz para eventos de socket.
  */
-public class SocketEvent {
-    private String mensaje;
-
-    public SocketEvent(String mensaje) {
-        this.mensaje = mensaje;
-    }
-
-    public String getMensaje() {
-        return mensaje;
-    }
+public interface SocketEvent {
+    void onNewNodo(SocketClient client);
+    void onCloseNodo(SocketClient client);
+    void onMessage(Comando comando);
+    void onMessage(String message);
+    void onError(String error);
 }

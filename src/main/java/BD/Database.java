@@ -40,6 +40,20 @@ public class Database {
                     + ");";
             stmt.execute(sqlVotante);
 
+            // Tabla de bloques
+            String sqlBloque = "CREATE TABLE IF NOT EXISTS bloque_0001 ("
+                    + "id TEXT PRIMARY KEY, "
+                    + "codigo_votante TEXT, "
+                    + "codigo_candidato TEXT, "
+                    + "hash TEXT, "
+                    + "ref_anterior_bloque TEXT, "
+                    + "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    + "estado TEXT DEFAULT 'pendiente', "
+                    + "FOREIGN KEY (codigo_votante) REFERENCES votante(codigo), "
+                    + "FOREIGN KEY (codigo_candidato) REFERENCES candidato(codigo)"
+                    + ");";
+            stmt.execute(sqlBloque);
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
