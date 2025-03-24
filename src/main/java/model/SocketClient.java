@@ -45,7 +45,7 @@ public class SocketClient {
                 String message;
                 while (running && (message = in.readLine()) != null) {
                     if (eventListener != null) {
-                        eventListener.recibirComando(message);
+                        eventListener.agregarMensaje(message);
                     }
                 }
             } catch (IOException e) {

@@ -8,11 +8,19 @@ public class CandidatoRequest {
         return codigo;
     }
 
+    public void setCodigo(String codigo) {
+        this.codigo = codigo;
+    }
+
     public String getNombre() {
         return nombre;
     }
 
-    public void validar() throws IllegalArgumentException {
+    public void setNombre(String nombre) {
+        this.nombre = nombre;
+    }
+
+    public void validar() {
         if (codigo == null || codigo.trim().isEmpty()) {
             throw new IllegalArgumentException("El código del candidato es requerido");
         }

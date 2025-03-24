@@ -18,18 +18,18 @@ public class AltaCandidatoComando extends Comando {
 
     @Override
     public String getComando() {
-        return String.format("0001|%s,%s", codigo, nombre);
+        return String.format("0003|%s,%s", codigo, nombre);
     }
 
     @Override
     public String getCodigoComando() {
-        return "0001";
+        return "0003";
     }
 
     public static boolean validarFormato(String comando) {
         try {
             String[] partes = comando.split(Pattern.quote("|"));
-            if (!partes[0].equals("0001") || partes.length != 2) return false;
+            if (!partes[0].equals("0003") || partes.length != 2) return false;
             
             String[] datos = partes[1].split(",");
             return datos.length == 2 && !datos[0].isEmpty() && !datos[1].isEmpty();

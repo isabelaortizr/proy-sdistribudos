@@ -20,7 +20,7 @@ import java.util.Set;
 
 public class NodoManager {
     private static final int PUERTO_NODO = 1825;
-    private static final String IP_NODO_PRINCIPAL = "172.16.61.17";
+    private static final String IP_NODO_PRINCIPAL = "192.168.0.10";
     private static final int TIEMPO_REINTENTO = 5000; // 5 segundos entre reintentos
     private static final int MAX_INTENTOS = 12; // Intentar durante 1 minuto (12 * 5 segundos)
     
@@ -162,7 +162,7 @@ public class NodoManager {
             System.out.println("Procesando mensaje: " + mensaje);
             
             // Primero enviamos el mensaje al planificador
-            planificadorEntrada.recibirComando(mensaje);
+            planificadorEntrada.agregarMensaje(mensaje);
             
             // Si es un mensaje de lista de nodos, intentamos conectarnos a los nuevos nodos
             if (mensaje.startsWith("0001|")) {

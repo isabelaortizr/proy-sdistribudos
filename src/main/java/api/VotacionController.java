@@ -11,245 +11,50 @@ import java.net.InetSocketAddress;
 import com.google.gson.Gson;
 import java.util.UUID;
 import java.util.List;
-import com.google.gson.JsonObject;
+import java.util.logging.Logger;
+import java.util.logging.Level;
 
-import comandos.VotacionComando;
-import comandos.ConfirmacionVotoComando;
-import api.dto.VotoRequest;
-import api.dto.VotanteRequest;
+import comandos.*;
 import api.dto.CandidatoRequest;
-import db.DatabaseManager;
 import api.dto.CandidatoResponse;
-import planificador.PlanificadorEntrada;
+import api.dto.VotoRequest;
+import db.DatabaseManager;
 import planificador.PlanificadorSalida;
-import comandos.AltaCandidatoComando;
 import model.Voto;
 
 public class VotacionController {
-    private static final int PUERTO_HTTP = 8080;
+    private static final Logger LOGGER = Logger.getLogger(VotacionController.class.getName());
     private final HttpServer server;
     private final PlanificadorSalida planificadorSalida;
     private final DatabaseManager dbManager;
     private final Gson gson;
+    private volatile boolean ejecutando = true;
 
     public VotacionController(int puerto, PlanificadorSalida planificadorSalida) throws IOException {
         this.server = HttpServer.create(new InetSocketAddress(puerto), 0);
         this.planificadorSalida = planificadorSalida;
         this.dbManager = DatabaseManager.getInstance();
         this.gson = new Gson();
-        configurarEndpoints();
-    }
-
-    private void configurarEndpoints() {
-        // Endpoint para votar
-        server.createContext("/api/votar", new HttpHandler() {
-            @Override
-            public void handle(HttpExchange exchange) throws IOException {
-                if (!"POST".equals(exchange.getRequestMethod())) {
-                    enviarRespuesta(exchange, 405, "Método no permitido");
-                    return;
-                }
-
-                try {
-                    // Leer el cuerpo de la petición
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()));
-                    StringBuilder body = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        body.append(line);
-                    }
-
-                    // Convertir JSON a objeto
-                    VotoRequest request = gson.fromJson(body.toString(), VotoRequest.class);
-
-                    // Validar el votante y candidato
-                    if (!dbManager.esVotanteValido(request.getCodigoVotante())) {
-                        throw new IllegalArgumentException("Votante inválido o ya ha votado");
-                    }
-                    if (!dbManager.existeCandidato(request.getCodigoCandidato())) {
-                        throw new IllegalArgumentException("Candidato no existe");
-                    }
-
-                    // Crear el voto
-                    String idVoto = UUID.randomUUID().toString();
-                    long timestamp = System.currentTimeMillis();
-
-                    // Crear objeto Voto
-                    Voto voto = new Voto(
-                        idVoto,
-                        timestamp,
-                        request.getCodigoVotante(),
-                        request.getCodigoCandidato()
-                    );
-
-                    // Crear y procesar el comando de votación
-                    VotacionComando comando = new VotacionComando(voto, request.getFirma());
-
-                    // Enviar al planificador de salida para distribuir a otros nodos
-                    planificadorSalida.addMessage(comando);
-
-                    // Enviar respuesta exitosa
-                    String respuesta = gson.toJson(new VotoResponse(idVoto));
-                    enviarRespuesta(exchange, 200, respuesta);
-
-                } catch (IllegalArgumentException e) {
-                    // Error de validación
-                    String respuesta = gson.toJson(new ErrorResponse("Error de validación: " + e.getMessage()));
-                    enviarRespuesta(exchange, 400, respuesta);
-                } catch (Exception e) {
-                    // Error interno
-                    String respuesta = gson.toJson(new ErrorResponse("Error interno: " + e.getMessage()));
-                    enviarRespuesta(exchange, 500, respuesta);
-                    e.printStackTrace();
-                }
-            }
-        });
-
-        // Endpoint para confirmar voto
-        server.createContext("/api/confirmar", new HttpHandler() {
-            @Override
-            public void handle(HttpExchange exchange) throws IOException {
-                if (!"POST".equals(exchange.getRequestMethod())) {
-                    enviarRespuesta(exchange, 405, "Método no permitido");
-                    return;
-                }
-
-                try {
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()));
-                    StringBuilder body = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        body.append(line);
-                    }
-
-                    ConfirmacionRequest confirmacion = gson.fromJson(body.toString(), ConfirmacionRequest.class);
-                    String ipOrigen = exchange.getRemoteAddress().getAddress().getHostAddress();
-                    
-                    ConfirmacionVotoComando comando = new ConfirmacionVotoComando(
-                        confirmacion.idVoto,
-                        confirmacion.confirmado,
-                        ipOrigen
-                    );
-
-                    // Enviar al planificador de salida para distribuir a otros nodos
-                    planificadorSalida.addMessage(comando);
-
-                    String respuesta = gson.toJson(new ConfirmacionResponse("Confirmación enviada"));
-                    enviarRespuesta(exchange, 200, respuesta);
-
-                } catch (Exception e) {
-                    String respuesta = gson.toJson(new ErrorResponse("Error al procesar la confirmación: " + e.getMessage()));
-                    enviarRespuesta(exchange, 400, respuesta);
-                    e.printStackTrace();
-                }
-            }
-        });
-
-        // Endpoints para votantes
-        server.createContext("/api/votantes", new VotantesHandler());
-        server.createContext("/api/votantes/eliminar", new EliminarVotanteHandler());
         
-        // Endpoints para candidatos
+        // Configurar rutas
         server.createContext("/api/candidatos", new CandidatosHandler());
-        server.createContext("/api/candidatos/eliminar", new EliminarCandidatoHandler());
+        server.createContext("/api/votantes", new VotantesHandler());
+        server.createContext("/api/votar", new VotacionHandler());
         
-        // Endpoint de estado (health check)
-        server.createContext("/api/estado", exchange -> {
-            if (!"GET".equals(exchange.getRequestMethod())) {
-                enviarRespuesta(exchange, 405, "Método no permitido");
-                return;
-            }
-            enviarRespuesta(exchange, 200, "{\"estado\":\"activo\"}");
-        });
-    }
-
-    private void enviarRespuesta(HttpExchange exchange, int codigo, String respuesta) throws IOException {
-        exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.sendResponseHeaders(codigo, respuesta.getBytes().length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(respuesta.getBytes());
-        }
+        server.setExecutor(null);
     }
 
     public void iniciar() {
-        server.start();
-        System.out.println("Servidor HTTP iniciado en puerto " + PUERTO_HTTP);
+        if (ejecutando) {
+            server.start();
+            LOGGER.info("Servidor HTTP iniciado en puerto " + server.getAddress().getPort());
+        }
     }
 
     public void detener() {
+        ejecutando = false;
         server.stop(0);
-        System.out.println("Servidor HTTP detenido");
-    }
-
-    private static class RespuestaVoto {
-        private final boolean exito;
-        private final String mensaje;
-
-        public RespuestaVoto(boolean exito, String mensaje) {
-            this.exito = exito;
-            this.mensaje = mensaje;
-        }
-    }
-
-    private class VotantesHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            if ("POST".equals(exchange.getRequestMethod())) {
-                // Registrar nuevo votante
-                try {
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()));
-                    StringBuilder body = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        body.append(line);
-                    }
-
-                    VotanteRequest request = gson.fromJson(body.toString(), VotanteRequest.class);
-                    request.validar();
-
-                    dbManager.registrarVotante(
-                        request.getCodigo(),
-                        request.getNombre(),
-                        request.getDni()
-                    );
-
-                    enviarRespuesta(exchange, 200, "{\"mensaje\":\"Votante registrado correctamente\"}");
-                } catch (Exception e) {
-                    enviarRespuesta(exchange, 400, "{\"error\":\"" + e.getMessage() + "\"}");
-                }
-            } else if ("GET".equals(exchange.getRequestMethod())) {
-                // Listar votantes
-                try {
-                    List<String[]> votantes = dbManager.listarVotantes();
-                    String json = gson.toJson(votantes);
-                    enviarRespuesta(exchange, 200, json);
-                } catch (Exception e) {
-                    enviarRespuesta(exchange, 500, "{\"error\":\"" + e.getMessage() + "\"}");
-                }
-            } else {
-                enviarRespuesta(exchange, 405, "{\"error\":\"Método no permitido\"}");
-            }
-        }
-    }
-
-    private class EliminarVotanteHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            if (!"POST".equals(exchange.getRequestMethod())) {
-                enviarRespuesta(exchange, 405, "{\"error\":\"Método no permitido\"}");
-                return;
-            }
-
-            try {
-                BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()));
-                String codigo = gson.fromJson(reader, JsonObject.class).get("codigo").getAsString();
-
-                dbManager.eliminarVotante(codigo);
-                enviarRespuesta(exchange, 200, "{\"mensaje\":\"Votante eliminado correctamente\"}");
-            } catch (Exception e) {
-                enviarRespuesta(exchange, 400, "{\"error\":\"" + e.getMessage() + "\"}");
-            }
-        }
+        LOGGER.info("Servidor HTTP detenido");
     }
 
     private class CandidatosHandler implements HttpHandler {
@@ -269,15 +74,22 @@ public class VotacionController {
                     CandidatoRequest request = gson.fromJson(body.toString(), CandidatoRequest.class);
                     request.validar();
 
-                    // Crear el comando
+                    // Crear el comando 0003 para alta de candidato
                     AltaCandidatoComando comando = new AltaCandidatoComando(request.getCodigo(), request.getNombre());
                     
-                    // Enviar al planificador de salida para distribuir a otros nodos
+                    // Enviar comando a través del planificador de salida
                     planificadorSalida.addMessage(comando);
                     
-                    enviarRespuesta(exchange, 200, "{\"mensaje\":\"Candidato registrado correctamente\"}");
+                    // Preparar respuesta JSON
+                    String respuesta = String.format(
+                        "{\"codigo\": \"%s\", \"mensaje\": \"Candidato registrado correctamente\"}", 
+                        request.getCodigo()
+                    );
+                    
+                    enviarRespuesta(exchange, 200, respuesta);
                 } catch (Exception e) {
-                    enviarRespuesta(exchange, 400, "{\"error\":\"" + e.getMessage() + "\"}");
+                    LOGGER.log(Level.SEVERE, "Error al registrar candidato", e);
+                    enviarRespuesta(exchange, 500, "Error interno del servidor");
                 }
             } else if ("GET".equals(exchange.getRequestMethod())) {
                 try {
@@ -287,55 +99,100 @@ public class VotacionController {
                     enviarRespuesta(exchange, 500, "{\"error\":\"" + e.getMessage() + "\"}");
                 }
             } else {
-                exchange.sendResponseHeaders(405, -1); // Método no permitido
+                enviarRespuesta(exchange, 405, "Método no permitido");
             }
         }
     }
 
-    private class EliminarCandidatoHandler implements HttpHandler {
+    private class VotantesHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                try {
+                    // Generar código aleatorio para el votante
+                    String codigo = UUID.randomUUID().toString().substring(0, 8);
+                    String llavePrivada = UUID.randomUUID().toString();
+                    
+                    // Crear comando 0006 para alta de votante
+                    AltaVotanteComando comando = new AltaVotanteComando(codigo, llavePrivada);
+                    
+                    // Enviar comando a través del planificador de salida
+                    planificadorSalida.addMessage(comando);
+                    
+                    // Preparar respuesta JSON
+                    String respuesta = String.format(
+                        "{\"codigo\": \"%s\", \"llavePrivada\": \"%s\"}", 
+                        codigo, 
+                        llavePrivada
+                    );
+                    
+                    enviarRespuesta(exchange, 200, respuesta);
+                } catch (Exception e) {
+                    LOGGER.log(Level.SEVERE, "Error al registrar votante", e);
+                    enviarRespuesta(exchange, 500, "Error interno del servidor");
+                }
+            } else if ("GET".equals(exchange.getRequestMethod())) {
+                try {
+                    List<String[]> votantes = dbManager.listarVotantes();
+                    enviarRespuesta(exchange, 200, gson.toJson(votantes));
+                } catch (Exception e) {
+                    enviarRespuesta(exchange, 500, "{\"error\":\"" + e.getMessage() + "\"}");
+                }
+            } else {
+                enviarRespuesta(exchange, 405, "Método no permitido");
+            }
+        }
+    }
+
+    private class VotacionHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if (!"POST".equals(exchange.getRequestMethod())) {
-                enviarRespuesta(exchange, 405, "{\"error\":\"Método no permitido\"}");
+                enviarRespuesta(exchange, 405, "Método no permitido");
                 return;
             }
 
             try {
+                // Leer el body del request
                 BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()));
-                String codigo = gson.fromJson(reader, JsonObject.class).get("codigo").getAsString();
+                StringBuilder body = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    body.append(line);
+                }
 
-                dbManager.eliminarCandidato(codigo);
-                enviarRespuesta(exchange, 200, "{\"mensaje\":\"Candidato eliminado correctamente\"}");
+                // Parsear el request
+                VotoRequest request = gson.fromJson(body.toString(), VotoRequest.class);
+                request.validar();
+                
+                // Crear el objeto Voto
+                Voto voto = new Voto(
+                    request.getIdVoto(),
+                    System.currentTimeMillis(), // timestamp actual
+                    request.getCodigoVotante(),
+                    request.getCodigoCandidato(),
+                    "" // refAnteriorBloque (se puede obtener después)
+                );
+                
+                // Crear comando 0004 para votación
+                VotacionComando comando = new VotacionComando(voto, ""); // La firma se puede agregar después
+                
+                // Enviar comando a través del planificador de salida
+                planificadorSalida.addMessage(comando);
+                
+                enviarRespuesta(exchange, 200, "Voto registrado correctamente");
             } catch (Exception e) {
-                enviarRespuesta(exchange, 400, "{\"error\":\"" + e.getMessage() + "\"}");
+                LOGGER.log(Level.SEVERE, "Error al procesar voto", e);
+                enviarRespuesta(exchange, 500, "Error interno del servidor");
             }
         }
     }
 
-    // Clases para manejar las peticiones y respuestas
-    private static class VotoResponse {
-        String idVoto;
-        VotoResponse(String idVoto) {
-            this.idVoto = idVoto;
-        }
-    }
-
-    private static class ConfirmacionRequest {
-        String idVoto;
-        boolean confirmado;
-    }
-
-    private static class ConfirmacionResponse {
-        String mensaje;
-        ConfirmacionResponse(String mensaje) {
-            this.mensaje = mensaje;
-        }
-    }
-
-    private static class ErrorResponse {
-        String error;
-        ErrorResponse(String error) {
-            this.error = error;
+    private void enviarRespuesta(HttpExchange exchange, int codigo, String mensaje) throws IOException {
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(codigo, mensaje.length());
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(mensaje.getBytes());
         }
     }
 } 
