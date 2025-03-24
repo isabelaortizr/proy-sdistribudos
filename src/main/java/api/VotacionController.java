@@ -19,8 +19,10 @@ import api.dto.CandidatoRequest;
 import api.dto.CandidatoResponse;
 import api.dto.VotoRequest;
 import db.DatabaseManager;
+import planificador.PlanificadorPresidenteMesa;
 import planificador.PlanificadorSalida;
 import model.Voto;
+import planificador.PlanificadorTransaccion;
 
 public class VotacionController {
     private static final Logger LOGGER = Logger.getLogger(VotacionController.class.getName());
@@ -164,23 +166,29 @@ public class VotacionController {
                 // Parsear el request
                 VotoRequest request = gson.fromJson(body.toString(), VotoRequest.class);
                 request.validar();
-                
+
+                // Crear el objeto Voto
                 // Crear el objeto Voto
                 Voto voto = new Voto(
-                    request.getIdVoto(),
-                    System.currentTimeMillis(), // timestamp actual
-                    request.getCodigoVotante(),
-                    request.getCodigoCandidato(),
-                    "" // refAnteriorBloque (se puede obtener después)
+                        request.getIdVoto(),
+                        System.currentTimeMillis(), // timestamp actual
+                        request.getCodigoVotante(),
+                        request.getCodigoCandidato(),
+                        "" // refAnteriorBloque (se puede obtener después)
                 );
-                
-                // Crear comando 0004 para votación
+
+                // Crear comando 0009 para votación (en tu sistema se procesa como VotacionComando)
                 VotacionComando comando = new VotacionComando(voto, ""); // La firma se puede agregar después
-                
+
+                // Registrar el voto localmente en los planificadores para que, al llegar la confirmación, se encuentre en el mapa
+                PlanificadorTransaccion.addVoto(comando);
+                PlanificadorPresidenteMesa.addVoto(comando);
+
                 // Enviar comando a través del planificador de salida
                 planificadorSalida.addMessage(comando);
-                
+
                 enviarRespuesta(exchange, 200, "Voto registrado correctamente");
+
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE, "Error al procesar voto", e);
                 enviarRespuesta(exchange, 500, "Error interno del servidor");

@@ -2,9 +2,8 @@ package network;
 
 import java.net.Socket;
 import java.io.*;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import comandos.Comando;
 import com.google.gson.Gson;
@@ -14,19 +13,16 @@ import db.DatabaseManager;
 import planificador.PlanificadorEntrada;
 import planificador.PlanificadorPresidenteMesa;
 import model.SocketClient;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
 
 public class NodoManager {
     private static final int PUERTO_NODO = 1825;
     private static final String IP_NODO_PRINCIPAL = "192.168.0.10";
     private static final int TIEMPO_REINTENTO = 5000; // 5 segundos entre reintentos
     private static final int MAX_INTENTOS = 12; // Intentar durante 1 minuto (12 * 5 segundos)
-    
+
     private final String ipLocal;
     private final PlanificadorEntrada planificadorEntrada;
-    private final Set<String> nodosConectados;
+    private final Map<String, SocketClient> nodosConectados;
     private final Gson gson;
     private final DatabaseManager dbManager;
     private final PlanificadorPresidenteMesa planificadorPresidenteMesa;
@@ -37,10 +33,11 @@ public class NodoManager {
     private volatile boolean running;
     private volatile boolean reconectando;
 
+    // Primer constructor
     public NodoManager(String ipLocal, PlanificadorEntrada planificadorEntrada) {
         this.ipLocal = ipLocal;
         this.planificadorEntrada = planificadorEntrada;
-        this.nodosConectados = Collections.synchronizedSet(new HashSet<>());
+        this.nodosConectados = new ConcurrentHashMap<>();
         this.gson = new Gson();
         this.running = true;
         this.reconectando = false;
@@ -48,38 +45,42 @@ public class NodoManager {
         this.planificadorPresidenteMesa = null;
     }
 
+    // Segundo constructor: CORRECCIÓN aquí, inicializamos nodosConectados como ConcurrentHashMap
     public NodoManager(String ipLocal, PlanificadorEntrada planificadorEntrada, PlanificadorPresidenteMesa planificadorPresidenteMesa) {
         this.ipLocal = ipLocal;
         this.planificadorEntrada = planificadorEntrada;
         this.planificadorPresidenteMesa = planificadorPresidenteMesa;
-        this.nodosConectados = Collections.synchronizedSet(new HashSet<>());
+        this.nodosConectados = new ConcurrentHashMap<>();
         this.gson = new Gson();
         this.running = true;
         this.reconectando = false;
         this.dbManager = DatabaseManager.getInstance();
     }
 
+    // Resto de la clase (métodos conectarANodoPrincipal, agregarNodo, conectarANodoSecundario, etc.) permanece igual...
+    // Por ejemplo:
+
     public void conectarANodoPrincipal() throws IOException {
         if (reconectando) {
             return;
         }
         reconectando = true;
-        
+
         new Thread(() -> {
             int intentos = 0;
             boolean conectado = false;
-            
+
             while (!conectado && running && intentos < MAX_INTENTOS) {
                 try {
                     intentos++;
                     System.out.println("Intento " + intentos + " de " + MAX_INTENTOS + " para conectar al nodo principal...");
-                    
+
                     socketPrincipal = new SocketClient();
                     socketPrincipal.connectToPrincipal(IP_NODO_PRINCIPAL, PUERTO_NODO, planificadorEntrada);
-                    nodosConectados.add(IP_NODO_PRINCIPAL);
+                    nodosConectados.put(IP_NODO_PRINCIPAL, socketPrincipal);
                     System.out.println("Conectado exitosamente al nodo principal: " + IP_NODO_PRINCIPAL);
                     conectado = true;
-                    
+
                 } catch (IOException e) {
                     System.err.println("Error conectando al nodo principal (intento " + intentos + "): " + e.getMessage());
                     if (intentos < MAX_INTENTOS) {
@@ -92,7 +93,7 @@ public class NodoManager {
                     }
                 }
             }
-            
+
             reconectando = false;
             if (!conectado) {
                 System.err.println("No se pudo conectar al nodo principal después de " + MAX_INTENTOS + " intentos.");
@@ -106,7 +107,6 @@ public class NodoManager {
             return;
         }
 
-        // Dividir la lista de IPs y limpiar cada una
         Set<String> ipsUnicas = new HashSet<>();
         for (String ip : listaIps.split(";")) {
             String ipLimpia = ip.trim();
@@ -117,16 +117,31 @@ public class NodoManager {
 
         System.out.println("Lista de IPs únicas recibidas: " + ipsUnicas);
 
-        // Conectar a cada IP única que no sea la local ni esté ya conectada
         for (String ip : ipsUnicas) {
-            if (!ip.equals(ipLocal) && !nodosConectados.contains(ip)) {
-                conectarANodoSecundario(ip);
+            // 1. Descartar la IP local
+            if (ip.equalsIgnoreCase(ipLocal.trim())) {
+                System.out.println("La IP " + ip + " es la IP local, no se conecta.");
+                continue;
             }
+            // 2. Si soy principal, no conecto a los demás
+            if (esNodoPrincipal()) {
+                System.out.println("Soy el nodo principal, no conecto a " + ip);
+                continue;
+            }
+            // 3. Si ya existe conexión, no vuelvo a conectar
+            if (nodosConectados.containsKey(ip)) {
+                System.out.println("La IP " + ip + " ya está conectada.");
+                continue;
+            }
+            // 4. Conectar al nodo (si soy secundario)
+            conectarANodoSecundario(ip);
         }
     }
 
+
     public void eliminarNodo(String ip) {
-        if (nodosConectados.remove(ip)) {
+        if (nodosConectados.containsKey(ip)) {
+            nodosConectados.remove(ip);
             if (planificadorPresidenteMesa != null) {
                 planificadorPresidenteMesa.getPlanificadorSalida().eliminarNodo(ip);
             }
@@ -134,12 +149,17 @@ public class NodoManager {
         }
     }
 
+
+
+
     public List<String> getNodosConectados() {
-        return new ArrayList<>(nodosConectados);
+        return new ArrayList<>(nodosConectados.keySet());
     }
 
+
     public String getIpLocal() {
-        return ipLocal;
+
+    return ipLocal;
     }
 
     public boolean esNodoPrincipal() {
@@ -151,7 +171,7 @@ public class NodoManager {
         if (socketPrincipal != null) {
             socketPrincipal.close();
         }
-        for (String ip : new ArrayList<>(nodosConectados)) {
+        for (String ip : new ArrayList<>(nodosConectados.keySet())) {
             eliminarNodo(ip);
         }
         nodosConectados.clear();
@@ -183,11 +203,22 @@ public class NodoManager {
             return;
         }
 
+        // Verifica si ya existe conexión para esa IP
+        if(nodosConectados.containsKey(ipNodo)){
+            System.out.println("Ya existe conexión para IP " + ipNodo + ", se reemplazará la conexión.");
+            // Cerrar la conexión anterior
+            SocketClient oldClient = nodosConectados.get(ipNodo);
+            oldClient.close();  // Asegúrate de tener un método close() en SocketClient
+            nodosConectados.remove(ipNodo);
+        }
+
         try {
             System.out.println("Intentando conectar a nodo: " + ipNodo);
             Socket socketSecundario = new Socket();
             socketSecundario.connect(new java.net.InetSocketAddress(ipNodo, PUERTO_NODO), 3000);
-            nodosConectados.add(ipNodo);
+            // Crea el SocketClient y agrégalo al Map
+            SocketClient client = new SocketClient(socketSecundario);
+            nodosConectados.put(ipNodo, client);
             if (planificadorPresidenteMesa != null) {
                 planificadorPresidenteMesa.getPlanificadorSalida().agregarNodo(ipNodo);
             }
@@ -199,19 +230,24 @@ public class NodoManager {
         }
     }
 
+
+
     private void programarReintento(String ipNodo) {
         new Thread(() -> {
             try {
                 Thread.sleep(TIEMPO_REINTENTO);
-                if (running && !nodosConectados.contains(ipNodo)) {
+                if (!nodosConectados.containsKey(ipNodo)) {
                     System.out.println("Reintentando conexión con nodo: " + ipNodo);
                     conectarANodoSecundario(ipNodo);
+                } else {
+                    System.out.println("No se reintentará conexión con nodo " + ipNodo + " porque ya está conectado.");
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }).start();
     }
+
 
     private void manejarNodoSecundario(Socket socket, String ipNodo) {
         try {

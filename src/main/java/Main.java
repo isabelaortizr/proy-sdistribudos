@@ -27,11 +27,16 @@ public class Main {
             DatabaseManager dbManager = DatabaseManager.getInstance();
             System.out.println("Base de datos inicializada");
 
-            // Crear PlanificadorPresidenteMesa
+            // Definir nodosDestino: si es principal, no hay nodos a conectar; si es secundario, se conecta al principal.
             String[] nodosDestino = esPrincipal ? new String[]{} : new String[]{IP_NODO_PRINCIPAL};
+
+            // Crear PlanificadorPresidenteMesa (única instancia) y arrancarlo en un hilo
             PlanificadorPresidenteMesa planificadorPresidenteMesa = new PlanificadorPresidenteMesa(nodosDestino);
-            
-            // Crear e iniciar el PlanificadorEntrada
+            Thread threadPresidente = new Thread(planificadorPresidenteMesa);
+            threadPresidente.start();
+            System.out.println("PlanificadorPresidenteMesa iniciado");
+
+            // Crear e iniciar el PlanificadorEntrada, usando el mismo planificadorPresidenteMesa
             PlanificadorEntrada planificadorEntrada = new PlanificadorEntrada(planificadorPresidenteMesa);
             planificadorEntrada.start();
             System.out.println("PlanificadorEntrada iniciado");
@@ -41,7 +46,7 @@ public class Main {
             ServerHolder.instance.start();
             System.out.println("Servidor de sockets iniciado en puerto " + PUERTO_NODO);
 
-            // Inicializar el NodoManager
+            // Inicializar el NodoManager (usando la misma instancia de PlanificadorPresidenteMesa)
             NodoManager nodoManager = new NodoManager(ipNodo, planificadorEntrada, planificadorPresidenteMesa);
             if (!esPrincipal) {
                 System.out.println("Intentando conectar al nodo principal...");
@@ -49,7 +54,7 @@ public class Main {
                     nodoManager.conectarANodoPrincipal();
                 } catch (Exception e) {
                     System.err.println("No se pudo establecer la conexión inicial con el nodo principal. " +
-                                     "El sistema continuará intentando conectarse en segundo plano.");
+                            "El sistema continuará intentando conectarse en segundo plano.");
                 }
             }
             System.out.println("NodoManager inicializado");
@@ -80,7 +85,6 @@ public class Main {
                     break;
                 }
             }
-
         } catch (Exception e) {
             System.err.println("Error iniciando el sistema: " + e.getMessage());
             e.printStackTrace();
@@ -90,4 +94,4 @@ public class Main {
             System.exit(1);
         }
     }
-} 
+}

@@ -1,9 +1,11 @@
 package planificador;
 
+import java.sql.SQLException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import comandos.*;
 import db.DatabaseManager;
+import model.Voto;
 
 public class PlanificadorTransaccion implements Runnable {
     private static final Map<String, Comando> messages = new ConcurrentHashMap<>();
@@ -58,13 +60,47 @@ public class PlanificadorTransaccion implements Runnable {
 
     public static void commitVoto(SincronizacionBloqueComando confirmacion) {
         synchronized (messages) {
-            VotacionComando comando = (VotacionComando) messages.remove(confirmacion.getIdBloque());
+            VotacionComando comando = (VotacionComando) messages.remove(confirmacion.getIdVoto());
             if (comando != null) {
-                System.out.println(String.format("Voto: %s listo para registrar en base de datos", confirmacion.getIdBloque()));
-                // Aquí iría la lógica para insertar en la base de datos
+                System.out.println(String.format("Voto: %s listo para registrar en base de datos", confirmacion.getIdVoto()));
+                try {
+                    // Obtener el objeto Voto
+                    Voto voto = comando.getVoto();
+                    DatabaseManager dbManager = DatabaseManager.getInstance();
+
+                    // Registrar el voto en la base de datos
+                    dbManager.registrarVoto(
+                            voto.getId(),
+                            voto.getCodigoVotante(),
+                            voto.getCodigoCandidato(),
+                            "SIN_HASH", // si no usas hash, puedes enviar un valor fijo o vacío
+                            voto.getRefAnteriorBloque()
+                    );
+                    System.out.println("Voto insertado en la base de datos correctamente.");
+
+                    // Verificación adicional: consultamos si el voto existe
+                    if (dbManager.existeVoto(voto.getId())) {
+                        System.out.println("Verificación: El voto " + voto.getId() + " se guardó correctamente.");
+                    } else {
+                        System.err.println("Error: No se encontró el voto " + voto.getId() + " tras la inserción.");
+                    }
+                } catch (SQLException ex) {
+                    System.err.println("Error al insertar el voto en la base de datos: " + ex.getMessage());
+                    ex.printStackTrace();
+                }
+            } else {
+                System.out.println("No se encontró voto con ID: " + confirmacion.getIdVoto());
             }
         }
     }
+
+
+
+
+
+
+
+
 
     public void detener() {
         running = false;

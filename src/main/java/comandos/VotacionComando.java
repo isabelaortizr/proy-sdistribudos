@@ -16,6 +16,16 @@ public class VotacionComando extends Comando {
     private Voto voto;
     private String firma;
     private int cantidadConfirmaciones;
+    private boolean sincronizado = false;
+
+
+    public boolean isSincronizado() {
+        return sincronizado;
+    }
+
+    public void setSincronizado(boolean sincronizado) {
+        this.sincronizado = sincronizado;
+    }
 
     public VotacionComando(Voto voto, String firma) {
         this.setCodigoComando(CODIGO_COMANDO);
@@ -69,12 +79,13 @@ public class VotacionComando extends Comando {
                 String[] votoArray = tokens[1].split(",");
                 if (votoArray.length == 4) {
                     Voto voto = new Voto(
-                        votoArray[0], // id
-                        Long.parseLong(votoArray[1]), // timestamp
-                        votoArray[2], // codigoVotante
-                        votoArray[3], // codigoCandidato
-                        "" // refAnteriorBloque (se puede obtener después)
+                            votoArray[0], // id
+                            Long.parseLong(votoArray[1]), // timestamp
+                            votoArray[2], // codigoVotante
+                            votoArray[3], // codigoCandidato
+                            "" // refAnteriorBloque (se puede obtener después)
                     );
+                    System.out.println("Parseado Voto con ID: " + voto.getId());
                     return new VotacionComando(voto, tokens[2].trim());
                 }
             }

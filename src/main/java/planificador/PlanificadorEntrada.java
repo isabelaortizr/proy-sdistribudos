@@ -94,6 +94,15 @@ public class PlanificadorEntrada extends Thread {
             case "0006":
                 procesarComandoAltaVotante(partes);
                 break;
+            case "0009":
+                procesarComandoVotacionDistribuida(partes);
+                break;
+            case "0010":
+                procesarComandoConfirmacionVotoDistribuido(partes);
+                break;
+            case "0011":
+                procesarComandoSincronizacionVoto(partes);
+                break;
             default:
                 LOGGER.warning("Comando desconocido: " + codigoComando);
         }
@@ -174,6 +183,67 @@ public class PlanificadorEntrada extends Thread {
         String llavePrivada = partes[2];
         LOGGER.info("Procesando alta de votante: " + codigo);
         // TODO: Implementar lógica para agregar votante a la base de datos
+    }
+
+    private void procesarComandoVotacionDistribuida(String[] partes) {
+        if (partes.length < 2) {
+            LOGGER.warning("Formato inválido para votación distribuida");
+            return;
+        }
+
+        try {
+            // Parsear el comando y loguear el ID obtenido
+            VotacionComando comando = VotacionComando.parsear(String.join("|", partes));
+            LOGGER.info("Voto recibido con ID: " + comando.getVoto().getId());
+
+            // Agregar el voto a ambos planificadores
+            PlanificadorTransaccion.addVoto(comando);
+            PlanificadorPresidenteMesa.addVoto(comando);
+
+            // Generar confirmación y enviarla al nodo origen
+            ConfirmacionVotoComando confirmacion = new ConfirmacionVotoComando(
+                    comando.getVoto().getId(),
+                    true,
+                    comando.getIp() != null ? comando.getIp() : "0.0.0.0" // asigna un valor por defecto si la IP es nula
+            );
+            planificadorPresidenteMesa.getPlanificadorSalida().addMessage(confirmacion);
+
+            LOGGER.info("Voto procesado y confirmación enviada: " + comando.getVoto().getId());
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Error procesando voto distribuido", e);
+        }
+    }
+
+
+    private void procesarComandoConfirmacionVotoDistribuido(String[] partes) {
+        if (partes.length < 2) {
+            LOGGER.warning("Formato inválido para confirmación de voto distribuido");
+            return;
+        }
+
+        try {
+            ConfirmacionVotoComando comando = ConfirmacionVotoComando.parsear(String.join("|", partes));
+            planificadorPresidenteMesa.confirmarVoto(comando);
+            LOGGER.info("Confirmación de voto procesada: " + comando.getIdVoto());
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Error procesando confirmación de voto", e);
+        }
+    }
+
+    private void procesarComandoSincronizacionVoto(String[] partes) {
+        if (partes.length < 2) {
+            LOGGER.warning("Formato inválido para sincronización de voto");
+            return;
+        }
+
+        try {
+            SincronizacionBloqueComando comando = SincronizacionBloqueComando.parsear(String.join("|", partes));
+            // Aquí se llama al planificador de transacción para hacer el commit
+            PlanificadorTransaccion.commitVoto(comando);
+            LOGGER.info("Voto sincronizado y commiteado: " + comando.getIdVoto());
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Error procesando sincronización de voto", e);
+        }
     }
 
     private boolean isMyIP(String ip) {

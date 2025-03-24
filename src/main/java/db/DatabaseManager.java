@@ -47,23 +47,28 @@ public class DatabaseManager {
                     "activo BOOLEAN DEFAULT TRUE)");
 
             // Tabla de votos
-            stmt.execute("CREATE TABLE IF NOT EXISTS votos (" +
+            String sqlVotos = "CREATE TABLE IF NOT EXISTS votos (" +
                     "id VARCHAR(50) PRIMARY KEY," +
                     "codigo_votante VARCHAR(50) NOT NULL," +
                     "codigo_candidato VARCHAR(50) NOT NULL," +
                     "hash VARCHAR(256) NOT NULL," +
                     "ref_anterior_bloque VARCHAR(256)," +
                     "confirmado BOOLEAN DEFAULT FALSE," +
-                    "timestamp BIGINT DEFAULT (UNIX_TIMESTAMP() * 1000)," +
+                    "timestamp BIGINT DEFAULT (strftime('%s','now') * 1000)," +
                     "FOREIGN KEY (codigo_votante) REFERENCES votantes(codigo)," +
-                    "FOREIGN KEY (codigo_candidato) REFERENCES candidatos(codigo))");
+                    "FOREIGN KEY (codigo_candidato) REFERENCES candidatos(codigo)" +
+                    ")";
+            stmt.execute(sqlVotos);
+
         }
     }
 
-    public void registrarVoto(String id, String codigoVotante, String codigoCandidato, 
+    public void registrarVoto(String id, String codigoVotante, String codigoCandidato,
                               String hash, String refAnteriorBloque) throws SQLException {
         String sql = "INSERT INTO votos (id, codigo_votante, codigo_candidato, hash, ref_anterior_bloque, confirmado) " +
-                    "VALUES (?, ?, ?, ?, ?, false)";
+                "VALUES (?, ?, ?, ?, ?, false)";
+        // Desactivar autocommit para controlar la transacción manualmente
+        connection.setAutoCommit(false);
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             stmt.setString(1, id);
             stmt.setString(2, codigoVotante);
@@ -71,8 +76,16 @@ public class DatabaseManager {
             stmt.setString(4, hash);
             stmt.setString(5, refAnteriorBloque);
             stmt.executeUpdate();
+            // Aquí podrías agregar más operaciones si las necesitas
+            connection.commit(); // Confirmar la transacción
+        } catch (SQLException ex) {
+            connection.rollback(); // En caso de error, revertir la transacción
+            throw ex;
+        } finally {
+            connection.setAutoCommit(true); // Volver al modo autocommit
         }
     }
+
 
     public void eliminarVoto(String idVoto) throws SQLException {
         String sql = "DELETE FROM votos WHERE id = ?";

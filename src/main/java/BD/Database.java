@@ -40,24 +40,30 @@ public class Database {
                     + ");";
             stmt.execute(sqlVotante);
 
-            // Tabla de bloques
+            // Tabla de bloques (o votos)
+            // Usamos strftime('%s','now') para obtener el timestamp actual en segundos y lo multiplicamos por 1000 para milisegundos.
+// Tabla de bloques (o votos)
+// Usamos strftime('%s','now') para obtener el timestamp actual en segundos
+// y lo multiplicamos por 1000 para milisegundos.
             String sqlBloque = "CREATE TABLE IF NOT EXISTS bloque_0001 ("
                     + "id TEXT PRIMARY KEY, "
                     + "codigo_votante TEXT, "
                     + "codigo_candidato TEXT, "
                     + "hash TEXT, "
                     + "ref_anterior_bloque TEXT, "
-                    + "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    + "timestamp BIGINT DEFAULT (strftime('%s','now') * 1000), "
                     + "estado TEXT DEFAULT 'pendiente', "
                     + "FOREIGN KEY (codigo_votante) REFERENCES votante(codigo), "
                     + "FOREIGN KEY (codigo_candidato) REFERENCES candidato(codigo)"
                     + ");";
             stmt.execute(sqlBloque);
 
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
+
 
     /**
      * Devuelve la conexión única a la base de datos.
