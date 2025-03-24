@@ -1,22 +1,27 @@
 package api.dto;
 
+import lombok.Setter;
+
 /**
  * Clase que representa una solicitud de voto
  */
+@Setter
 public class VotoRequest {
     private String idVoto;
     private String codigoVotante;
     private String codigoCandidato;
+    private String firma; // Nuevo campo para la firma
 
     // Constructor por defecto
     public VotoRequest() {
     }
 
     // Constructor con todos los campos
-    public VotoRequest(String idVoto, String codigoVotante, String codigoCandidato) {
+    public VotoRequest(String idVoto, String codigoVotante, String codigoCandidato, String firma) {
         this.idVoto = idVoto;
         this.codigoVotante = codigoVotante;
         this.codigoCandidato = codigoCandidato;
+        this.firma = firma;
     }
 
     // Getters y Setters
@@ -50,6 +55,17 @@ public class VotoRequest {
         this.codigoCandidato = codigoCandidato;
     }
 
+    public String getFirma() {
+        return firma;
+    }
+
+    public void setFirma(String firma) {
+        if(firma == null || firma.trim().isEmpty()){
+            throw new IllegalArgumentException("La firma es requerida");
+        }
+        this.firma = firma;
+    }
+
     /**
      * Valida que todos los campos requeridos estén presentes
      * @throws IllegalArgumentException si algún campo requerido está vacío
@@ -64,6 +80,9 @@ public class VotoRequest {
         if (codigoCandidato == null || codigoCandidato.trim().isEmpty()) {
             throw new IllegalArgumentException("El código del candidato es requerido");
         }
+        if (firma == null || firma.trim().isEmpty()) {
+            throw new IllegalArgumentException("La firma es requerida");
+        }
     }
 
     @Override
@@ -72,6 +91,7 @@ public class VotoRequest {
                 "idVoto='" + idVoto + '\'' +
                 ", codigoVotante='" + codigoVotante + '\'' +
                 ", codigoCandidato='" + codigoCandidato + '\'' +
+                ", firma='" + firma + '\'' +
                 '}';
     }
-} 
+}

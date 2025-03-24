@@ -10,32 +10,62 @@ import planificador.PlanificadorPresidenteMesa;
 public class ConfirmacionVotoComando extends Comando {
     private final String idVoto;
     private final boolean confirmado;
+    private final String ipOrigen;
 
-    public ConfirmacionVotoComando(String idVoto, boolean confirmado) {
-        super();
-        this.setCodigoComando("0010");
+    public ConfirmacionVotoComando(String idVoto, boolean confirmado, String ipOrigen) {
+        setCodigoComando("0010");
         this.idVoto = idVoto;
         this.confirmado = confirmado;
-    }
-
-    public ConfirmacionVotoComando(String idVoto, boolean confirmado, String ipNodo) {
-        super();
-        this.setCodigoComando("0010");
-        this.idVoto = idVoto;
-        this.confirmado = confirmado;
-        this.setIp(ipNodo);
+        this.ipOrigen = ipOrigen;
     }
 
     @Override
     public String getComando() {
-        return String.format("%s|%s,%b,%s",
-                this.getCodigoComando(),
-                this.idVoto,
-                this.confirmado,
-                this.getIp()  // Se agrega el ip_origen
-        );
+        // Formato: 0010|idVoto,confirmado,ipOrigen
+        return String.format("%s|%s,%b,%s", getCodigoComando(), idVoto, confirmado, ipOrigen);
     }
 
+    @Override
+    public String getCodigoComando() {
+        return "0010";
+    }
+
+    /**
+     * Valida que el comando tenga el formato correcto:
+     * 0010|idVoto,confirmado,ipOrigen
+     */
+    public static boolean validarFormato(String comando) {
+        String[] partes = comando.split("\\|");
+        if (partes.length != 2) return false;
+        if (!partes[0].equals("0010")) return false;
+        String[] datos = partes[1].split(",");
+        if (datos.length != 3) return false;
+        if (datos[0].trim().isEmpty() || datos[2].trim().isEmpty()) return false;
+        try {
+            Boolean.parseBoolean(datos[1].trim());
+        } catch(Exception e) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Parsea la cadena de comando y retorna un objeto ConfirmacionVotoComando.
+     * Se espera el formato: 0010|idVoto,confirmado,ipOrigen
+     */
+    public static ConfirmacionVotoComando parsear(String comando) {
+        if (!validarFormato(comando)) {
+            throw new IllegalArgumentException("Formato de comando 0010 inválido");
+        }
+        String[] partes = comando.split("\\|");
+        String[] datos = partes[1].split(",");
+        String idVoto = datos[0].trim();
+        boolean confirmado = Boolean.parseBoolean(datos[1].trim());
+        String ipOrigen = datos[2].trim();
+        return new ConfirmacionVotoComando(idVoto, confirmado, ipOrigen);
+    }
+
+    // Getters
     public String getIdVoto() {
         return idVoto;
     }
@@ -44,35 +74,7 @@ public class ConfirmacionVotoComando extends Comando {
         return confirmado;
     }
 
-    public static boolean validarFormato(String mensaje) {
-        String[] partes = mensaje.split("\\|");
-        if (partes.length != 2) return false;
-
-        String[] datos = partes[1].split(",");
-        return datos.length == 3;
+    public String getIpOrigen() {
+        return ipOrigen;
     }
-
-    public static ConfirmacionVotoComando parsear(String mensaje) {
-        String[] partes = mensaje.split("\\|");
-        if (partes.length != 2) {
-            throw new IllegalArgumentException("Formato de comando inválido");
-        }
-        String[] datos = partes[1].split(",");
-        if (datos.length == 2) {
-            // Si solo se reciben dos campos, se puede asignar un valor predeterminado para ip.
-            return new ConfirmacionVotoComando(
-                    datos[0],
-                    Boolean.parseBoolean(datos[1]),
-                    "0.0.0.0"  // Valor por defecto o puedes manejarlo de otra forma.
-            );
-        } else if (datos.length == 3) {
-            return new ConfirmacionVotoComando(
-                    datos[0],
-                    Boolean.parseBoolean(datos[1]),
-                    datos[2]
-            );
-        } else {
-            throw new IllegalArgumentException("Formato de comando inválido");
-        }
-    }
-} 
+}

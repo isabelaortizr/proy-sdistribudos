@@ -220,15 +220,17 @@ public class PlanificadorEntrada extends Thread {
             LOGGER.warning("Formato inválido para confirmación de voto distribuido");
             return;
         }
-
         try {
+            // Se utiliza el método parsear para construir el objeto ConfirmacionVotoComando
             ConfirmacionVotoComando comando = ConfirmacionVotoComando.parsear(String.join("|", partes));
+            // Por ejemplo, pasamos este comando a PlanificadorPresidenteMesa para incrementar confirmaciones
             planificadorPresidenteMesa.confirmarVoto(comando);
             LOGGER.info("Confirmación de voto procesada: " + comando.getIdVoto());
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Error procesando confirmación de voto", e);
         }
     }
+
 
     private void procesarComandoSincronizacionVoto(String[] partes) {
         if (partes.length < 2) {

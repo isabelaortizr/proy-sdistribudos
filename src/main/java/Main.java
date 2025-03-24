@@ -8,7 +8,7 @@ import db.DatabaseManager;
 public class Main {
     private static final int PUERTO_NODO = 1825;
     private static final int PUERTO_HTTP = 8080;
-    private static final String IP_NODO_PRINCIPAL = "192.168.0.10";
+    private static final String IP_NODO_PRINCIPAL = "192.168.212.67";
 
     private static class ServerHolder {
         private static Server instance;
@@ -17,7 +17,7 @@ public class Main {
     public static void main(String[] args) {
         try {
             // Configuración inicial
-            boolean esPrincipal = args.length > 0 && args[0].equalsIgnoreCase("principal");
+            boolean esPrincipal = args.length > 0 && args[0].equalsIgnoreCase("SECUNDARIO");
             String ipNodo = esPrincipal ? IP_NODO_PRINCIPAL : "127.0.0.1";
             System.out.println("Iniciando sistema de votación...");
             System.out.println("Modo: " + (esPrincipal ? "PRINCIPAL" : "SECUNDARIO"));

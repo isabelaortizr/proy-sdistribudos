@@ -4,11 +4,8 @@ import java.net.Socket;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import comandos.Comando;
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
-import java.lang.reflect.Type;
 import db.DatabaseManager;
 import planificador.PlanificadorEntrada;
 import planificador.PlanificadorPresidenteMesa;
@@ -16,7 +13,7 @@ import model.SocketClient;
 
 public class NodoManager {
     private static final int PUERTO_NODO = 1825;
-    private static final String IP_NODO_PRINCIPAL = "192.168.0.10";
+    private static final String IP_NODO_PRINCIPAL = "192.168.137.1"; // Ajusta esta IP según corresponda
     private static final int TIEMPO_REINTENTO = 5000; // 5 segundos entre reintentos
     private static final int MAX_INTENTOS = 12; // Intentar durante 1 minuto (12 * 5 segundos)
 
@@ -27,25 +24,15 @@ public class NodoManager {
     private final DatabaseManager dbManager;
     private final PlanificadorPresidenteMesa planificadorPresidenteMesa;
     private SocketClient socketPrincipal;
-    private PrintWriter writer;
-    private BufferedReader reader;
-    private Socket socket;
     private volatile boolean running;
     private volatile boolean reconectando;
 
-    // Primer constructor
+    // Constructor para nodo secundario (sin planificadorPresidenteMesa)
     public NodoManager(String ipLocal, PlanificadorEntrada planificadorEntrada) {
-        this.ipLocal = ipLocal;
-        this.planificadorEntrada = planificadorEntrada;
-        this.nodosConectados = new ConcurrentHashMap<>();
-        this.gson = new Gson();
-        this.running = true;
-        this.reconectando = false;
-        this.dbManager = DatabaseManager.getInstance();
-        this.planificadorPresidenteMesa = null;
+        this(ipLocal, planificadorEntrada, null);
     }
 
-    // Segundo constructor: CORRECCIÓN aquí, inicializamos nodosConectados como ConcurrentHashMap
+    // Constructor principal (o secundario con planificadorPresidenteMesa)
     public NodoManager(String ipLocal, PlanificadorEntrada planificadorEntrada, PlanificadorPresidenteMesa planificadorPresidenteMesa) {
         this.ipLocal = ipLocal;
         this.planificadorEntrada = planificadorEntrada;
@@ -57,9 +44,9 @@ public class NodoManager {
         this.dbManager = DatabaseManager.getInstance();
     }
 
-    // Resto de la clase (métodos conectarANodoPrincipal, agregarNodo, conectarANodoSecundario, etc.) permanece igual...
-    // Por ejemplo:
-
+    /**
+     * Conecta al nodo principal (si se es nodo secundario).
+     */
     public void conectarANodoPrincipal() throws IOException {
         if (reconectando) {
             return;
@@ -69,7 +56,6 @@ public class NodoManager {
         new Thread(() -> {
             int intentos = 0;
             boolean conectado = false;
-
             while (!conectado && running && intentos < MAX_INTENTOS) {
                 try {
                     intentos++;
@@ -80,7 +66,6 @@ public class NodoManager {
                     nodosConectados.put(IP_NODO_PRINCIPAL, socketPrincipal);
                     System.out.println("Conectado exitosamente al nodo principal: " + IP_NODO_PRINCIPAL);
                     conectado = true;
-
                 } catch (IOException e) {
                     System.err.println("Error conectando al nodo principal (intento " + intentos + "): " + e.getMessage());
                     if (intentos < MAX_INTENTOS) {
@@ -93,7 +78,6 @@ public class NodoManager {
                     }
                 }
             }
-
             reconectando = false;
             if (!conectado) {
                 System.err.println("No se pudo conectar al nodo principal después de " + MAX_INTENTOS + " intentos.");
@@ -102,6 +86,10 @@ public class NodoManager {
         }).start();
     }
 
+    /**
+     * Agrega nodos a partir de una cadena de IPs separadas por ";"
+     * Se excluye la IP local y, si se es nodo principal, no se conectan nodos.
+     */
     public void agregarNodo(String listaIps) {
         if (listaIps == null || listaIps.trim().isEmpty()) {
             return;
@@ -114,101 +102,40 @@ public class NodoManager {
                 ipsUnicas.add(ipLimpia);
             }
         }
-
         System.out.println("Lista de IPs únicas recibidas: " + ipsUnicas);
 
         for (String ip : ipsUnicas) {
-            // 1. Descartar la IP local
+            // Excluir IP local
             if (ip.equalsIgnoreCase(ipLocal.trim())) {
                 System.out.println("La IP " + ip + " es la IP local, no se conecta.");
                 continue;
             }
-            // 2. Si soy principal, no conecto a los demás
+            // Si este nodo es el principal, no conectamos a otros
             if (esNodoPrincipal()) {
                 System.out.println("Soy el nodo principal, no conecto a " + ip);
                 continue;
             }
-            // 3. Si ya existe conexión, no vuelvo a conectar
             if (nodosConectados.containsKey(ip)) {
                 System.out.println("La IP " + ip + " ya está conectada.");
                 continue;
             }
-            // 4. Conectar al nodo (si soy secundario)
             conectarANodoSecundario(ip);
         }
     }
 
-
-    public void eliminarNodo(String ip) {
-        if (nodosConectados.containsKey(ip)) {
-            nodosConectados.remove(ip);
-            if (planificadorPresidenteMesa != null) {
-                planificadorPresidenteMesa.getPlanificadorSalida().eliminarNodo(ip);
-            }
-            System.out.println("Nodo eliminado: " + ip);
-        }
-    }
-
-
-
-
-    public List<String> getNodosConectados() {
-        return new ArrayList<>(nodosConectados.keySet());
-    }
-
-
-    public String getIpLocal() {
-
-    return ipLocal;
-    }
-
-    public boolean esNodoPrincipal() {
-        return ipLocal.equals(IP_NODO_PRINCIPAL);
-    }
-
-    public void cerrar() {
-        running = false;
-        if (socketPrincipal != null) {
-            socketPrincipal.close();
-        }
-        for (String ip : new ArrayList<>(nodosConectados.keySet())) {
-            eliminarNodo(ip);
-        }
-        nodosConectados.clear();
-    }
-
-    private void procesarMensaje(String mensaje) {
-        try {
-            System.out.println("Procesando mensaje: " + mensaje);
-            
-            // Primero enviamos el mensaje al planificador
-            planificadorEntrada.agregarMensaje(mensaje);
-            
-            // Si es un mensaje de lista de nodos, intentamos conectarnos a los nuevos nodos
-            if (mensaje.startsWith("0001|")) {
-                String[] partes = mensaje.split("\\|");
-                if (partes.length == 2) {
-                    System.out.println("Recibida lista de nodos: " + partes[1]);
-                    agregarNodo(partes[1]);
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("Error al procesar mensaje: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
+    /**
+     * Conecta a un nodo secundario dado su IP.
+     */
     private void conectarANodoSecundario(String ipNodo) {
-        if (ipNodo == null || ipNodo.isEmpty() || ipNodo.equals(ipLocal)) {
+        if (ipNodo == null || ipNodo.isEmpty() || ipNodo.equalsIgnoreCase(ipLocal)) {
             return;
         }
 
-        // Verifica si ya existe conexión para esa IP
+        // Si ya existe conexión, la reemplazamos.
         if(nodosConectados.containsKey(ipNodo)){
             System.out.println("Ya existe conexión para IP " + ipNodo + ", se reemplazará la conexión.");
-            // Cerrar la conexión anterior
             SocketClient oldClient = nodosConectados.get(ipNodo);
-            oldClient.close();  // Asegúrate de tener un método close() en SocketClient
+            oldClient.close();
             nodosConectados.remove(ipNodo);
         }
 
@@ -216,7 +143,6 @@ public class NodoManager {
             System.out.println("Intentando conectar a nodo: " + ipNodo);
             Socket socketSecundario = new Socket();
             socketSecundario.connect(new java.net.InetSocketAddress(ipNodo, PUERTO_NODO), 3000);
-            // Crea el SocketClient y agrégalo al Map
             SocketClient client = new SocketClient(socketSecundario);
             nodosConectados.put(ipNodo, client);
             if (planificadorPresidenteMesa != null) {
@@ -230,13 +156,14 @@ public class NodoManager {
         }
     }
 
-
-
+    /**
+     * Programa un reintento para conectar a un nodo dado.
+     */
     private void programarReintento(String ipNodo) {
         new Thread(() -> {
             try {
                 Thread.sleep(TIEMPO_REINTENTO);
-                if (!nodosConectados.containsKey(ipNodo)) {
+                if (running && !nodosConectados.containsKey(ipNodo)) {
                     System.out.println("Reintentando conexión con nodo: " + ipNodo);
                     conectarANodoSecundario(ipNodo);
                 } else {
@@ -248,10 +175,11 @@ public class NodoManager {
         }).start();
     }
 
-
+    /**
+     * Maneja la comunicación con un nodo secundario.
+     */
     private void manejarNodoSecundario(Socket socket, String ipNodo) {
-        try {
-            BufferedReader readerNodo = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        try (BufferedReader readerNodo = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
             String mensaje;
             while (running && (mensaje = readerNodo.readLine()) != null) {
                 procesarMensaje(mensaje);
@@ -274,43 +202,80 @@ public class NodoManager {
         }
     }
 
+    /**
+     * Procesa un mensaje recibido y lo envía al PlanificadorEntrada.
+     */
+    private void procesarMensaje(String mensaje) {
+        try {
+            System.out.println("Procesando mensaje: " + mensaje);
+            planificadorEntrada.agregarMensaje(mensaje);
+            // Si es un mensaje de lista de nodos (código 0001), se procesa la lista.
+            if (mensaje.startsWith("0001|")) {
+                String[] partes = mensaje.split("\\|");
+                if (partes.length == 2) {
+                    System.out.println("Recibida lista de nodos: " + partes[1]);
+                    agregarNodo(partes[1]);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error al procesar mensaje: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Envía un mensaje a todos los clientes conectados.
+     */
     public void enviarMensaje(String mensaje) {
-        if (writer != null) {
-            writer.println(mensaje);
+        synchronized (nodosConectados) {
+            for (SocketClient cliente : nodosConectados.values()) {
+                try {
+                    cliente.send(mensaje);
+                } catch (Exception e) {
+                    System.err.println("Error enviando mensaje a " + cliente.getRemoteAddress() + ": " + e.getMessage());
+                    cliente.close();
+                }
+            }
         }
     }
 
-    public void enviarVoto(String codigoVotante, String codigoCandidato, String firma) {
-        try {
-            MessageWrapper mensaje = new MessageWrapper();
-            mensaje.tipo = "VOTO";
-            mensaje.datos = gson.toJson(new VotoData(codigoVotante, codigoCandidato, firma));
-            writer.println(gson.toJson(mensaje));
-        } catch (Exception e) {
-            System.err.println("Error al enviar voto: " + e.getMessage());
+    /**
+     * Retorna una lista con las IPs de los nodos conectados.
+     */
+    public List<String> getNodosConectados() {
+        return new ArrayList<>(nodosConectados.keySet());
+    }
+
+    public String getIpLocal() {
+        return ipLocal;
+    }
+
+    /**
+     * Indica si este nodo es el principal.
+     */
+    public boolean esNodoPrincipal() {
+        return ipLocal.equalsIgnoreCase(IP_NODO_PRINCIPAL);
+    }
+
+    /**
+     * Cierra todas las conexiones y detiene el NodoManager.
+     */
+    public void cerrar() {
+        running = false;
+        if (socketPrincipal != null) {
+            socketPrincipal.close();
+        }
+        synchronized (nodosConectados) {
+            for (SocketClient cliente : nodosConectados.values()) {
+                cliente.close();
+            }
+            nodosConectados.clear();
         }
     }
 
-    private void procesarVotoRecibido(String datosVoto) {
-        try {
-            VotoData voto = gson.fromJson(datosVoto, VotoData.class);
-            // Aquí implementarías la lógica para procesar el voto recibido
-            // Por ejemplo, crear un Comando09 y ejecutarlo
-        } catch (Exception e) {
-            System.err.println("Error al procesar voto recibido: " + e.getMessage());
-        }
-    }
+    // Métodos para enviar voto o procesar mensajes de otros tipos se pueden agregar según sea necesario.
 
-    private void procesarConfirmacionRecibida(String datosConfirmacion) {
-        try {
-            ConfirmacionData confirmacion = gson.fromJson(datosConfirmacion, ConfirmacionData.class);
-            // Aquí implementarías la lógica para procesar la confirmación
-            // Por ejemplo, actualizar el estado del voto en la base de datos
-        } catch (Exception e) {
-            System.err.println("Error al procesar confirmación: " + e.getMessage());
-        }
-    }
-
+    // Clases internas para datos de mensajes (opcional)
     private static class MessageWrapper {
         String tipo;
         String datos;
@@ -320,7 +285,6 @@ public class NodoManager {
         String codigoVotante;
         String codigoCandidato;
         String firma;
-
         VotoData(String codigoVotante, String codigoCandidato, String firma) {
             this.codigoVotante = codigoVotante;
             this.codigoCandidato = codigoCandidato;
@@ -349,4 +313,4 @@ public class NodoManager {
         String idVoto;
         boolean confirmado;
     }
-} 
+}

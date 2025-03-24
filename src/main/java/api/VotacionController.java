@@ -155,7 +155,6 @@ public class VotacionController {
             }
 
             try {
-                // Leer el body del request
                 BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()));
                 StringBuilder body = new StringBuilder();
                 String line;
@@ -163,38 +162,38 @@ public class VotacionController {
                     body.append(line);
                 }
 
-                // Parsear el request
+
                 VotoRequest request = gson.fromJson(body.toString(), VotoRequest.class);
+                request.setFirma("Firma_123");
                 request.validar();
 
-                // Crear el objeto Voto
-                // Crear el objeto Voto
                 Voto voto = new Voto(
                         request.getIdVoto(),
-                        System.currentTimeMillis(), // timestamp actual
+                        System.currentTimeMillis(),
                         request.getCodigoVotante(),
                         request.getCodigoCandidato(),
-                        "" // refAnteriorBloque (se puede obtener después)
+                        "" // refAnteriorBloque vacío
                 );
 
-                // Crear comando 0009 para votación (en tu sistema se procesa como VotacionComando)
-                VotacionComando comando = new VotacionComando(voto, ""); // La firma se puede agregar después
+                // Se crea el comando 0009 a partir del voto y la firma del request
+                VotacionComando comando = new VotacionComando(voto, request.getFirma());
 
-                // Registrar el voto localmente en los planificadores para que, al llegar la confirmación, se encuentre en el mapa
+                // Registrar el voto en los planificadores locales para confirmaciones y sincronización
                 PlanificadorTransaccion.addVoto(comando);
                 PlanificadorPresidenteMesa.addVoto(comando);
 
-                // Enviar comando a través del planificador de salida
+                // Enviar el comando 0009 a través del planificador de salida
                 planificadorSalida.addMessage(comando);
 
                 enviarRespuesta(exchange, 200, "Voto registrado correctamente");
-
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE, "Error al procesar voto", e);
                 enviarRespuesta(exchange, 500, "Error interno del servidor");
             }
         }
     }
+
+
 
     private void enviarRespuesta(HttpExchange exchange, int codigo, String mensaje) throws IOException {
         exchange.getResponseHeaders().set("Content-Type", "application/json");
